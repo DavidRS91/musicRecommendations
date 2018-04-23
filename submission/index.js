@@ -55,18 +55,17 @@ router.post("/music/new", async function(ctx) {
   let newMusic = await new MusicModel(ctx.request.body);
   await newMusic.save();
   ctx.body = newMusic;
-
 });
 
 router.post("/follow", async function(ctx) {
   const { body } = ctx.request;
-  let from = ctx.request.body.from || null;
-  let to = ctx.request.body.to || null;
-  if (from && to) {
-    ctx.body = { message: `${from} now follows ${to}` };
-  } else {
-    ctx.body = { error: "Invalid Request" };
-  }
+  const to = await UserModel.findOne({ username: body.to });
+  await UserModel.findOneAndUpdate(
+    { username: body.from, following: { $ne: to._id } },
+    { $push: { following: to._id } }
+  );
+  const from = await UserModel.findOne({ username: body.from });
+  ctx.body = from;
 });
 
 router.post("/listen", async function(ctx) {
