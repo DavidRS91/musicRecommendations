@@ -52,9 +52,10 @@ router.post("/user/new", async function(ctx) {
 });
 
 router.post("/music/new", async function(ctx) {
-  let newUser = await new UserModel(ctx.request.body);
-  await newUser.save();
-  ctx.body = newUser;
+  let newMusic = await new MusicModel(ctx.request.body);
+  await newMusic.save();
+  ctx.body = newMusic;
+
 });
 
 router.post("/follow", async function(ctx) {
