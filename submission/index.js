@@ -70,13 +70,13 @@ router.post("/follow", async function(ctx) {
 
 router.post("/listen", async function(ctx) {
   const { body } = ctx.request;
-  let user = ctx.request.body.user || null;
-  let music = ctx.request.body.music || null;
-  if (user && music) {
-    ctx.body = { message: `${user} listened to ${music}` };
-  } else {
-    ctx.body = { error: "Invalid Request" };
-  }
+  const music = await MusicModel.findOne({ name: body.music });
+  await UserModel.findOneAndUpdate(
+    { username: body.user },
+    { $push: { listens: music._id } }
+  );
+  const user = await UserModel.findOne({ username: body.user });
+  ctx.body = user;
 });
 
 app.use(Logger());
