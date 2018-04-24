@@ -57,7 +57,8 @@ router.post("/seed", async function(ctx) {
   const numSongs = body.songs || 50;
   let users = [],
     songIds = [],
-    songs = [];
+    songs = [],
+    userDocs = [];
   const tags = [
     "60s",
     "alternative",
@@ -83,134 +84,94 @@ router.post("/seed", async function(ctx) {
     }
     songs.push({ name: `Song ${i}`, tags: genres });
   }
+  //save songs and track ids for seeding users
+  for (const song of songs) {
+    const newSong = await new MusicModel(song).save();
+    song["id"] = newSong._id;
+    songIds.push(newSong._id);
+  }
   //create desired number of users
   for (let i = 0; i < numUsers; i += 1) {
     users.push({ username: `User${i}` });
   }
-  //assign users to follow ~40% of other users
-  for (let user of users) {
-    user = user.following = users
-      .filter(u => Math.random() > 0.6 && u !== user)
-      .map(u => u.username);
-  }
-  //assign users to listen to 15 random songs
-  for (let i = 0; i < users.length; i += 1) {
+  // create documents to represent each user and assign 15 song ids to 'listens' array
+  for (const user of users) {
+    const newUser = await new UserModel(user);
     let userSongs = [];
-
     for (let i = 0; i < 15; i += 1) {
-      userSongs.push(songs[Math.floor(Math.random() * songs.length)]["name"]);
+      userSongs.push(songIds[Math.floor(Math.random() * songIds.length)]);
     }
-    users[i]["listens"] = userSongs;
+    newUser["listens"] = userSongs;
+    userDocs.push(newUser);
   }
 
-  async function seed(users, songs) {
-    let userDocs = [];
-    for (const song of songs) {
-      const newSong = await new MusicModel(song).save();
-      song["id"] = newSong._id;
-      songIds.push(newSong._id);
-    }
-
-    for (const user of users) {
-      user["listens"] = user["listens"].map(
-        x => songs.filter(s => s.name === x).map(s => s.id)[0]
-      );
-      const newUser = await new UserModel(user);
-      userDocs.push(newUser);
-    }
-
-    for (const user of userDocs) {
-      user.following = user.following
-        .map(u => userDocs.filter(uD => uD["username"] === u))
-        .map(u => u[0]._id);
-      user.save();
-    }
+  //assign user documentss to follow ~25% of other users and save users
+  for (const user of userDocs) {
+    user.following = userDocs
+      .filter(u => Math.random() > 0.75 && u !== user)
+      .map(u => u._id);
+    user.save();
   }
 
-  seed(users, songs);
-
-  ctx.body = { users: users, songs: songs };
+  const allSongs = await MusicModel.find({});
+  ctx.body = { music: allSongs };
 });
 
 router.get("/recommendations", async function(ctx) {
   const user = await UserModel.findOne({ username: ctx.query.user });
+  const songs = await MusicModel.find({});
+  let top20Songs = [],
+    minScore = 2,
+    followsTagFreq = {};
+  let listensTagFreq = await tagFreq(user.listens);
 
-  async function tagFrequency(songIds, tagWeighting = {}) {
-    for (let songId of songIds) {
-      const song = await MusicModel.findById(songId);
-      for (let tag of song.tags) {
-        tagWeighting[tag] =
-          tagWeighting[tag] + 1 / song.tags.length / songIds.length ||
-          1 / song.tags.length / songIds.length;
-      }
-    }
-    return tagWeighting;
-  }
-
-  let listensTagFrequency = await tagFrequency(user.listens);
-  let followsTagFrequency = {};
-  for (let userId of user.following) {
-    const followedUser = await UserModel.findById(userId);
-    const followedUserTags = await tagFrequency(
+  for (let id of user.following) {
+    const followedUser = await UserModel.findById(id);
+    const followedUserTags = await tagFreq(
       followedUser.listens,
-      followsTagFrequency
+      followsTagFreq
     );
   }
-  Object.keys(followsTagFrequency).forEach(
-    k => (followsTagFrequency[k] /= user.following.length)
+  Object.keys(followsTagFreq).forEach(
+    k => (followsTagFreq[k] /= user.following.length)
   );
 
-  let aggregateTagFrequency = listensTagFrequency;
-  Object.keys(followsTagFrequency).forEach(
-    tag =>
-      !!aggregateTagFrequency[tag]
-        ? (aggregateTagFrequency[tag] += followsTagFrequency[tag])
-        : (aggregateTagFrequency[tag] = followsTagFrequency[tag])
-  );
-  Object.keys(followsTagFrequency).forEach(
-    tag => (aggregateTagFrequency[tag] /= 2)
+  let avgTagFreq = listensTagFreq;
+  // aggregate tag frequency of listensTags and followsTags
+  Object.keys(followsTagFreq).forEach(
+    k =>
+      !!avgTagFreq[k]
+        ? (avgTagFreq[k] += followsTagFreq[k])
+        : (avgTagFreq[k] = followsTagFreq[k])
   );
 
-  async function rankUnheardSongs(tagPreferences = {}) {
-    const songs = await MusicModel.find({});
-    let rankedTop20Songs = [];
-    for (let song of songs) {
-      let songscore = song.tags
-        .map(
-          t => (!!tagPreferences[t] ? tagPreferences[t] / song.tags.length : 0)
-        )
-        .reduce((a, b) => a + b);
-      for (let i = 0; i < 20; i += 1) {
-        if (user.listens.indexOf(song._id) === -1) {
-          if (
-            rankedTop20Songs[i] === undefined ||
-            rankedTop20Songs[i][1] < songscore
-          ) {
-            rankedTop20Songs.splice(i, 0, [song.name, songscore]);
-            if (rankedTop20Songs.length > 20) {
-              rankedTop20Songs.pop();
-            }
-            console.log(`song: ${song.name}, score: ${songscore}, i: ${i}`);
-            console.log("ranked10: ", rankedTop20Songs);
-            break;
+  for (let song of songs) {
+    let songScore = song.tags // find average value of a song's tags in the avgTagFreq object
+      .map(t => (!!avgTagFreq[t] ? avgTagFreq[t] / song.tags.length : 0))
+      .reduce((a, b) => a + b);
+    for (let i = 0; i < 20; i += 1) {
+      if (
+        user.listens.indexOf(song._id) === -1 && // check if user has heard song
+        (songScore > minScore || top20Songs.length < 20) //ensure song is scored high enough
+      ) {
+        if (top20Songs[i] === undefined || top20Songs[i][1] < songScore) {
+          //insert song into proper position of top20 songs
+          top20Songs.splice(i, 0, [song.name, songScore]);
+          if (top20Songs.length > 20) {
+            top20Songs.pop();
           }
+          minScore = Math.min(minScore, songScore);
+          break;
         }
       }
     }
-    let random5Songs = [];
-    while (random5Songs.length < 5) {
-      random5Songs.push(
-        rankedTop20Songs.splice(
-          Math.floor(Math.random() * rankedTop20Songs.length),
-          1
-        )[0][0]
-      );
-    }
-    return random5Songs;
   }
-
-  let recommendations = await rankUnheardSongs(aggregateTagFrequency);
-  console.log(aggregateTagFrequency);
+  let recommendations = [];
+  while (recommendations.length < 5) {
+    recommendations.push(
+      top20Songs.splice(Math.floor(Math.random() * top20Songs.length), 1)[0][0]
+    );
+  }
 
   ctx.body = {
     list: recommendations
@@ -244,3 +205,15 @@ app.use(BodyParser());
 app.use(router.routes());
 
 app.listen(3000);
+
+async function tagFreq(songIds, tagWeighting = {}) {
+  for (let id of songIds) {
+    const song = await MusicModel.findById(id);
+    for (let tag of song.tags) {
+      tagWeighting[tag] =
+        tagWeighting[tag] + 1 / song.tags.length / songIds.length ||
+        1 / song.tags.length / songIds.length;
+    }
+  }
+  return tagWeighting;
+}
