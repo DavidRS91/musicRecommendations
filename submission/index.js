@@ -85,7 +85,7 @@ router.post("/seed", async function(ctx) {
   }
   //create desired number of users
   for (let i = 0; i < numUsers; i += 1) {
-    users.push({ username: `User ${i}` });
+    users.push({ username: `User${i}` });
   }
   //assign users to follow ~40% of other users
   for (let user of users) {
@@ -133,8 +133,42 @@ router.post("/seed", async function(ctx) {
 });
 
 router.get("/recommendations", async function(ctx) {
+  const user = await UserModel.findOne({ username: ctx.query.user });
+
+  async function tagFrequency(songIds, tagWeighting = {}) {
+    for (let songId of songIds) {
+      const song = await MusicModel.findById(songId);
+      for (let tag of song.tags) {
+        tagWeighting[tag] =
+          tagWeighting[tag] + 1 / song.tags.length / songIds.length ||
+          1 / song.tags.length / songIds.length;
+      }
+    }
+    return tagWeighting;
+  }
+
+  let listensTags = await tagFrequency(user.listens);
+  let followsTags = {};
+  for (let userId of user.following) {
+    const followedUser = await UserModel.findById(userId);
+    const followedUserTags = await tagFrequency(
+      followedUser.listens,
+      followsTags
+    );
+  }
+  Object.keys(followsTags).forEach(
+    k => (followsTags[k] /= user.following.length)
+  );
+
   ctx.body = {
-    list: ["<music ID>", "<music ID>", "<music ID>", "<music ID>", "<music ID>"]
+    list: [
+      "<music ID>",
+      "<music ID>",
+      "<music ID>",
+      "<music ID>",
+      "<music ID>"
+    ],
+    user: user
   };
 });
 
