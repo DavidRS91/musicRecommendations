@@ -147,28 +147,73 @@ router.get("/recommendations", async function(ctx) {
     return tagWeighting;
   }
 
-  let listensTags = await tagFrequency(user.listens);
-  let followsTags = {};
+  let listensTagFrequency = await tagFrequency(user.listens);
+  let followsTagFrequency = {};
   for (let userId of user.following) {
     const followedUser = await UserModel.findById(userId);
     const followedUserTags = await tagFrequency(
       followedUser.listens,
-      followsTags
+      followsTagFrequency
     );
   }
-  Object.keys(followsTags).forEach(
-    k => (followsTags[k] /= user.following.length)
+  Object.keys(followsTagFrequency).forEach(
+    k => (followsTagFrequency[k] /= user.following.length)
   );
 
+  let aggregateTagFrequency = listensTagFrequency;
+  Object.keys(followsTagFrequency).forEach(
+    tag =>
+      !!aggregateTagFrequency[tag]
+        ? (aggregateTagFrequency[tag] += followsTagFrequency[tag])
+        : (aggregateTagFrequency[tag] = followsTagFrequency[tag])
+  );
+  Object.keys(followsTagFrequency).forEach(
+    tag => (aggregateTagFrequency[tag] /= 2)
+  );
+
+  async function rankUnheardSongs(tagPreferences = {}) {
+    const songs = await MusicModel.find({});
+    let rankedTop20Songs = [];
+    for (let song of songs) {
+      let songscore = song.tags
+        .map(
+          t => (!!tagPreferences[t] ? tagPreferences[t] / song.tags.length : 0)
+        )
+        .reduce((a, b) => a + b);
+      for (let i = 0; i < 20; i += 1) {
+        if (user.listens.indexOf(song._id) === -1) {
+          if (
+            rankedTop20Songs[i] === undefined ||
+            rankedTop20Songs[i][1] < songscore
+          ) {
+            rankedTop20Songs.splice(i, 0, [song.name, songscore]);
+            if (rankedTop20Songs.length > 20) {
+              rankedTop20Songs.pop();
+            }
+            console.log(`song: ${song.name}, score: ${songscore}, i: ${i}`);
+            console.log("ranked10: ", rankedTop20Songs);
+            break;
+          }
+        }
+      }
+    }
+    let random5Songs = [];
+    while (random5Songs.length < 5) {
+      random5Songs.push(
+        rankedTop20Songs.splice(
+          Math.floor(Math.random() * rankedTop20Songs.length),
+          1
+        )[0][0]
+      );
+    }
+    return random5Songs;
+  }
+
+  let recommendations = await rankUnheardSongs(aggregateTagFrequency);
+  console.log(aggregateTagFrequency);
+
   ctx.body = {
-    list: [
-      "<music ID>",
-      "<music ID>",
-      "<music ID>",
-      "<music ID>",
-      "<music ID>"
-    ],
-    user: user
+    list: recommendations
   };
 });
 
