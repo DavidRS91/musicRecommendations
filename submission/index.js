@@ -4,10 +4,27 @@ const Logger = require("koa-logger");
 const Router = require("koa-router");
 const mongoose = require("mongoose");
 const uniqueValidator = require("mongoose-unique-validator");
+const music = require("../music");
+const listens = require("../listen");
 
 const Schema = mongoose.Schema;
 mongoose.Promise = global.Promise;
 mongoose.connect("mongodb://localhost/musicRecommendations");
+
+mongoose.connection.on("open", async function() {
+  console.log("connected to MongoDB");
+
+  UserModel.collection.drop();
+  MusicModel.collection.drop();
+
+  for (const songTitle in music) {
+    await new MusicModel({ name: songTitle, tags: music[songTitle] }).save();
+  }
+
+  for (const user in listens["userIds"]) {
+    await new UserModel({ username: user }).save();
+  }
+});
 
 const Music = new Schema({
   name: { type: String, required: true, unique: true },
@@ -86,9 +103,7 @@ router.post("/seed", async function(ctx) {
   }
   //save songs and track ids for seeding users
   for (const song of songs) {
-    const newSong = await new MusicModel(song).save();
-    song["id"] = newSong._id;
-    songIds.push(newSong._id);
+    await new MusicModel(song).save();
   }
   //create desired number of users
   for (let i = 0; i < numUsers; i += 1) {
@@ -109,7 +124,7 @@ router.post("/seed", async function(ctx) {
   for (const user of userDocs) {
     user.following = userDocs
       .filter(u => Math.random() > 0.75 && u !== user)
-      .map(u => u._id);
+      .map(u => u.username);
     user.save();
   }
 
@@ -125,8 +140,8 @@ router.get("/recommendations", async function(ctx) {
     followsTagFreq = {};
   let listensTagFreq = await tagFreq(user.listens);
 
-  for (let id of user.following) {
-    const followedUser = await UserModel.findById(id);
+  for (let username of user.following) {
+    const followedUser = await UserModel.findOne({ username: username });
     const followedUserTags = await tagFreq(
       followedUser.listens,
       followsTagFreq
@@ -151,7 +166,7 @@ router.get("/recommendations", async function(ctx) {
       .reduce((a, b) => a + b);
     for (let i = 0; i < 20; i += 1) {
       if (
-        user.listens.indexOf(song._id) === -1 && // check if user has heard song
+        user.listens.indexOf(song.name) === -1 && // check if user has heard song
         (songScore > minScore || top20Songs.length < 20) //ensure song is scored high enough
       ) {
         if (top20Songs[i] === undefined || top20Songs[i][1] < songScore) {
@@ -180,10 +195,11 @@ router.get("/recommendations", async function(ctx) {
 
 router.post("/follow", async function(ctx) {
   const { body } = ctx.request;
+  console.log("CTX: ", ctx);
   const to = await UserModel.findOne({ username: body.to });
   await UserModel.findOneAndUpdate(
-    { username: body.from, following: { $ne: to._id } },
-    { $push: { following: to._id } }
+    { username: body.from, following: { $ne: to.username } },
+    { $push: { following: to.username } }
   );
   const from = await UserModel.findOne({ username: body.from });
   ctx.body = from;
@@ -194,7 +210,7 @@ router.post("/listen", async function(ctx) {
   const music = await MusicModel.findOne({ name: body.music });
   await UserModel.findOneAndUpdate(
     { username: body.user },
-    { $push: { listens: music._id } }
+    { $push: { listens: music.name } }
   );
   const user = await UserModel.findOne({ username: body.user });
   ctx.body = user;
@@ -206,13 +222,15 @@ app.use(router.routes());
 
 app.listen(3000);
 
-async function tagFreq(songIds, tagWeighting = {}) {
-  for (let id of songIds) {
-    const song = await MusicModel.findById(id);
+async function tagFreq(songs, tagWeighting = {}) {
+  for (let songName of songs) {
+    console.log("SONGNAME: ", songName);
+    const song = await MusicModel.findOne({ name: songName });
+    console.log("SONG: ", song);
     for (let tag of song.tags) {
       tagWeighting[tag] =
-        tagWeighting[tag] + 1 / song.tags.length / songIds.length ||
-        1 / song.tags.length / songIds.length;
+        tagWeighting[tag] + 1 / song.tags.length / songs.length ||
+        1 / song.tags.length / songs.length;
     }
   }
   return tagWeighting;
