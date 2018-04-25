@@ -87,23 +87,21 @@ router.get("/recommendations", async function(ctx) {
     let songScore = song.tags // find average value of a song's tags in the avgTagFreq object
       .map(t => (!!avgTagFreq[t] ? avgTagFreq[t] / song.tags.length : 0))
       .reduce((a, b) => a + b);
-    for (let i = 0; i < songs.length; i += 1) {
+    for (let i = 0; i < 5; i += 1) {
       if (
         user.listens.indexOf(song.name) === -1 // check if user has heard song
       ) {
         if (top5Songs[i] === undefined || top5Songs[i][1] < songScore) {
           //insert song into proper position of top5 songs
           top5Songs.splice(i, 0, [song.name, songScore]);
+          if (top5Songs.length > 5) {
+            top5Songs.pop();
+          }
           minScore = Math.min(minScore, songScore);
           break;
         }
       }
     }
-  }
-  top5Songs = top5Songs.filter(s => s[1] >= top5Songs[4][1]); // get top 5 songs and ties
-  while (top5Songs.length > 5) {
-    //randomly select 5 of the top songs when there are ties
-    top5Songs.splice(Math.floor(Math.random() * top5Songs.length), 1);
   }
 
   ctx.body = {
