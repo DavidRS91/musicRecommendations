@@ -13,7 +13,6 @@ mongoose.connect("mongodb://localhost/musicRecommendations");
 
 mongoose.connection.on("open", async function() {
   console.log("connected to MongoDB");
-
   UserModel.collection.drop();
   MusicModel.collection.drop();
 
@@ -56,86 +55,10 @@ app.use(async (ctx, next) => {
   }
 });
 
-router.post("/user/new", async function(ctx) {
-  let newUser = await new UserModel(ctx.request.body);
-  await newUser.save();
-  ctx.body = newUser;
-});
-
-router.post("/music/new", async function(ctx) {
-  let newMusic = await new MusicModel(ctx.request.body);
-  await newMusic.save();
-  ctx.body = newMusic;
-});
-
-router.post("/seed", async function(ctx) {
-  const { body } = ctx.request;
-  const numUsers = body.users || 10;
-  const numSongs = body.songs || 50;
-  let users = [],
-    songIds = [],
-    songs = [],
-    userDocs = [];
-  const tags = [
-    "60s",
-    "alternative",
-    "dance",
-    "electronic",
-    "instrumental",
-    "jazz",
-    "old school",
-    "pop",
-    "rock",
-    "samba"
-  ];
-
-  //clear any existing records
-  UserModel.collection.drop();
-  MusicModel.collection.drop();
-
-  //create desired number of songs with randomized tags
-  for (let i = 0; i < numSongs; i += 1) {
-    let genres = tags.filter(tag => Math.random() > 0.8);
-    if (genres.length === 0) {
-      genres.push("hipster");
-    }
-    songs.push({ name: `Song ${i}`, tags: genres });
-  }
-  //save songs and track ids for seeding users
-  for (const song of songs) {
-    await new MusicModel(song).save();
-  }
-  //create desired number of users
-  for (let i = 0; i < numUsers; i += 1) {
-    users.push({ username: `User${i}` });
-  }
-  // create documents to represent each user and assign 15 song ids to 'listens' array
-  for (const user of users) {
-    const newUser = await new UserModel(user);
-    let userSongs = [];
-    for (let i = 0; i < 15; i += 1) {
-      userSongs.push(songIds[Math.floor(Math.random() * songIds.length)]);
-    }
-    newUser["listens"] = userSongs;
-    userDocs.push(newUser);
-  }
-
-  //assign user documentss to follow ~25% of other users and save users
-  for (const user of userDocs) {
-    user.following = userDocs
-      .filter(u => Math.random() > 0.75 && u !== user)
-      .map(u => u.username);
-    user.save();
-  }
-
-  const allSongs = await MusicModel.find({});
-  ctx.body = { music: allSongs };
-});
-
 router.get("/recommendations", async function(ctx) {
   const user = await UserModel.findOne({ username: ctx.query.user });
   const songs = await MusicModel.find({});
-  let top20Songs = [],
+  let top5Songs = [],
     minScore = 2,
     followsTagFreq = {};
   let listensTagFreq = await tagFreq(user.listens);
@@ -164,38 +87,32 @@ router.get("/recommendations", async function(ctx) {
     let songScore = song.tags // find average value of a song's tags in the avgTagFreq object
       .map(t => (!!avgTagFreq[t] ? avgTagFreq[t] / song.tags.length : 0))
       .reduce((a, b) => a + b);
-    for (let i = 0; i < 20; i += 1) {
+    for (let i = 0; i < songs.length; i += 1) {
       if (
-        user.listens.indexOf(song.name) === -1 && // check if user has heard song
-        (songScore > minScore || top20Songs.length < 20) //ensure song is scored high enough
+        user.listens.indexOf(song.name) === -1 // check if user has heard song
       ) {
-        if (top20Songs[i] === undefined || top20Songs[i][1] < songScore) {
-          //insert song into proper position of top20 songs
-          top20Songs.splice(i, 0, [song.name, songScore]);
-          if (top20Songs.length > 20) {
-            top20Songs.pop();
-          }
+        if (top5Songs[i] === undefined || top5Songs[i][1] < songScore) {
+          //insert song into proper position of top5 songs
+          top5Songs.splice(i, 0, [song.name, songScore]);
           minScore = Math.min(minScore, songScore);
           break;
         }
       }
     }
   }
-  let recommendations = [];
-  while (recommendations.length < 5) {
-    recommendations.push(
-      top20Songs.splice(Math.floor(Math.random() * top20Songs.length), 1)[0][0]
-    );
+  top5Songs = top5Songs.filter(s => s[1] >= top5Songs[4][1]); // get top 5 songs and ties
+  while (top5Songs.length > 5) {
+    //randomly select 5 of the top songs when there are ties
+    top5Songs.splice(Math.floor(Math.random() * top5Songs.length), 1);
   }
 
   ctx.body = {
-    list: recommendations
+    list: top5Songs.map(s => s[0])
   };
 });
 
 router.post("/follow", async function(ctx) {
   const { body } = ctx.request;
-  console.log("CTX: ", ctx);
   const to = await UserModel.findOne({ username: body.to });
   await UserModel.findOneAndUpdate(
     { username: body.from, following: { $ne: to.username } },
@@ -224,9 +141,7 @@ app.listen(3000);
 
 async function tagFreq(songs, tagWeighting = {}) {
   for (let songName of songs) {
-    console.log("SONGNAME: ", songName);
     const song = await MusicModel.findOne({ name: songName });
-    console.log("SONG: ", song);
     for (let tag of song.tags) {
       tagWeighting[tag] =
         tagWeighting[tag] + 1 / song.tags.length / songs.length ||

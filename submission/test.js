@@ -7,7 +7,7 @@ const FOLLOW_URL = "http://localhost:3000/follow";
 const LISTEN_URL = "http://localhost:3000/listen";
 const RECOMMENDATION_URL = "http://localhost:3000/recommendations?user=";
 
-describe("Adding followers", async () => {
+describe("Add followers", async () => {
   for (let follow of followRequests.operations) {
     it(`${follow[0]} now follows ${follow[1]}`, async () => {
       const followReq = await fetch(FOLLOW_URL, {
@@ -21,7 +21,7 @@ describe("Adding followers", async () => {
   }
 });
 
-describe("Listening to music", async () => {
+describe("Listen to music", async () => {
   for (let user in listens.userIds) {
     for (let song of listens.userIds[user]) {
       it(`${user} listened to ${song}`, async () => {
@@ -37,13 +37,11 @@ describe("Listening to music", async () => {
   }
 });
 
-describe("get recommendations", async () => {
-  for (let user in listens.userIds) {
-    it(`Recommendations for ${user}`, async () => {
-      const recommendations = await fetch(`${RECOMMENDATION_URL}${user}`);
-      const response = await recommendations.json();
-      assert.equal(response.list.length, 5);
-      console.log(`Recommended songs for ${user}: `, response);
-    });
-  }
+describe("Get recommendations for user a", async () => {
+  it(`Recommends five songs for user a`, async () => {
+    const recommendations = await fetch(`${RECOMMENDATION_URL}a`);
+    const response = await recommendations.json();
+    assert.equal(response.list.length, 5);
+    console.log(`Recommended songs for user a: `, response);
+  });
 });
