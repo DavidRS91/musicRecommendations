@@ -5,7 +5,7 @@ An MVP designed to recommend music to users based on the music they have listene
 
 ## Instructions for use
 1. Clone this repo to your local machine
-2. Start MongoDB
+2. `$ mongod` Start MongoDB
 3. Navigate to the submission directory
 4. `$ npm install` to install all project dependencies
 4. `$ npm run start` to startup the server and seed it with music and users
