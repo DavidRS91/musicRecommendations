@@ -1,23 +1,17 @@
 const Koa = require("koa");
 const BodyParser = require("koa-bodyparser");
 const Logger = require("koa-logger");
-const Router = require("koa-router");
 const mongoose = require("mongoose");
-const uniqueValidator = require("mongoose-unique-validator");
+
 const music = require("../music");
 const listens = require("../listen");
+
 const schemas = require("./db/schemas");
-const logic = require("./lib/logic");
+
 const followRouter = require("./routes/follow");
 const listenRouter = require("./routes/listen");
 const recommendationsRouter = require("./routes/recommendations");
 
-const {
-  aggregateFrequency,
-  followerFrequency,
-  tagFrequency,
-  sortSongs
-} = logic;
 const { UserModel, MusicModel } = schemas;
 
 mongoose.Promise = global.Promise;
@@ -38,7 +32,6 @@ mongoose.connection.on("open", async function() {
 });
 
 const app = new Koa();
-const router = new Router();
 
 app.use(async (ctx, next) => {
   try {
@@ -52,13 +45,11 @@ app.use(async (ctx, next) => {
 
 app.use(Logger());
 app.use(BodyParser());
-app.use(followRouter.routes());
-app.use(followRouter.allowedMethods());
-app.use(listenRouter.routes());
-app.use(listenRouter.allowedMethods());
-app.use(recommendationsRouter.routes());
-app.use(recommendationsRouter.allowedMethods());
-app.use(router.routes());
-app.use(router.allowedMethods());
+
+const routers = [followRouter, listenRouter, recommendationsRouter];
+for (let r of routers) {
+  app.use(r.routes());
+  app.use(r.allowedMethods());
+}
 
 app.listen(3000);
