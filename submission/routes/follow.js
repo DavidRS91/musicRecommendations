@@ -6,7 +6,6 @@ const router = new Router({ prefix: "/follow" });
 
 router.post("/", async function(ctx) {
   const { body } = ctx.request;
-  let response;
   const to = await UserModel.findOne({ username: body.to });
   const from = await UserModel.findOneAndUpdate(
     { username: body.from, following: { $ne: to.username } },
