@@ -20,12 +20,8 @@ async function followerFrequency(followedUsers) {
       followedUser.listens,
       followsTagFreq
     );
-
-    Object.keys(followsTagFreq).forEach(
-      k => (followsTagFreq[k] /= followedUsers.length)
-    );
   }
-  return followsTagFreq;
+  return weightTags(followsTagFreq, followedUsers.length);
 }
 
 async function tagFrequency(songs, tagWeighting = {}) {
@@ -77,3 +73,10 @@ module.exports = {
   tagFrequency,
   sortSongs
 };
+
+// helper methods
+
+function weightTags(tags, denominator) {
+  Object.keys(tags).forEach(k => (tags[k] /= denominator));
+  return tags;
+}
